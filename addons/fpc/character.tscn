@@ -2,7 +2,6 @@
 
 [ext_resource type="Script" uid="uid://hutuis63hgev" path="res://addons/fpc/character.gd" id="1_0t4e8"]
 [ext_resource type="PackedScene" uid="uid://bcs4fgv0833r5" path="res://hands.glb" id="2_bx7cj"]
-[ext_resource type="PackedScene" uid="uid://cctx8yyil1ugx" path="res://gancho separado.glb" id="2_qaoyu"]
 [ext_resource type="Script" uid="uid://dgfl3skp075ft" path="res://addons/fpc/EditorModule.gd" id="3_v3ckk"]
 [ext_resource type="Script" uid="uid://u5u7xxlvmcxx" path="res://addons/fpc/debug.gd" id="3_x1wcc"]
 
@@ -176,11 +175,40 @@ metadata/extras = {
 "targetNames": ["Normal", "Hold", "fist", "no hook"]
 }
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_rwtcd"]
-cull_mode = 2
-
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_uv0ir"]
 cull_mode = 2
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_poncg"]
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_5tahl"]
+_surfaces = [{
+"aabb": AABB(-0.14858994, 0.0019539148, -0.14683634, 0.29542628, 0.3369791, 0.29542628),
+"format": 34896613377,
+"index_count": 60,
+"index_data": PackedByteArray("AAABAAIAAAADAAEABAACAAEAAwAEAAEABQAAAAIAAwAAAAUABAAGAAIABQACAAYAAwAHAAQAAwAFAAcABwAGAAQABwAFAAYACAAJAAoACAALAAkADAANAA4ADAAPAA0AEAARABIAEAATABEAFAAVABYAFAAXABUA"),
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 24,
+"vertex_data": PackedByteArray("Q2AAALufAABDYMaFvl4AAENgxoW7nwAAQ2AAAL5eAABAocaFvl4AAEChAAC7nwAAQKHGhbufAABAoQAAvl4AAPmbvWs8fwAA/////zx/AAD//71rPH8AAPmb//88fwAAAAC9azx/AAAFZP//PH8AAAVkvWs8fwAAAAD//zx/AADBgL1rBWQAAMKA/v8AAAAAwYC9awAAAADCgP7/BWQAAMKAvWv//wAAwoD+//mbAADCgL1r+ZsAAMKA/v///wAA")
+}]
+blend_shape_mode = 0
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_3pp2g"]
+resource_name = "gancho separado_Cube"
+_surfaces = [{
+"aabb": AABB(-0.14858994, 0.0019539148, -0.14683634, 0.29542628, 0.3369791, 0.29542628),
+"attribute_data": PackedByteArray("/1////+f/7//n////1//v/9f/7//n/9//5//v/9f/3//X/9//5//P/+f/3//X/8//1//P/+fAAD/n/8//18AAP8f/3//X/8//1//f/8f/z//n/9//9//P//f/3//n/8/AAD/////AAD/////AAAAAAAA/////wAA/////wAAAAAAAP////8AAP////8AAAAAAAD/////AAD/////AAAAAA=="),
+"format": 34896613399,
+"index_count": 60,
+"index_data": PackedByteArray("AAABAAIAAAADAAEABAAFAAYABAAHAAUACAAJAAoACAALAAkADAANAA4ADAAPAA0AEAARABIAEAATABEAFAAVABYAFAAXABUAGAAZABoAGAAbABkAHAAdAB4AHAAfAB0AIAAhACIAIAAjACEAJAAlACYAJAAnACUA"),
+"material": SubResource("StandardMaterial3D_poncg"),
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 40,
+"vertex_data": PackedByteArray("Q2AAALufVNVDYMaFvl5U1UNgxoW7n1TVQ2AAAL5eVNVDYAAAvl7//0ChxoW+Xv//Q2DGhb5e//9AoQAAvl7//0ChAAC+XlTVQKHGhbufVNVAocaFvl5U1UChAAC7n1TVQKEAALuf/79DYMaFu5//v0ChxoW7n/+/Q2AAALuf/79DYAAAvl7/v0ChAAC7n/+/QKEAAL5e/79DYAAAu5//v0ChxoW+Xv//Q2DGhbuf//9DYMaFvl7//0ChxoW7n///+Zu9azx/AID/////PH8AgP//vWs8fwCA+Zv//zx/AIAAAL1rPH8AgAVk//88fwCABWS9azx/AIAAAP//PH8AgMGAvWsFZP+/woD+/wAA/7/BgL1rAAD/v8KA/v8FZP+/woC9a////7/CgP7/+Zv/v8KAvWv5m/+/woD+/////79U1VTVVNVU1VTVVNVU1VTV/7//v/+//7//v/+//7//v6oqqiqqKqoqqiqqKqoqqir/////////////////////AAD/fwAA/38AAP9/AAD/f/9//7//f/+//3//v/9//7//f////3////9/////f////3////9/////f////3////9/AAD/fwAA/38AAP9/AAD/fwAA/38AAP9/AAD/fwAA")
+}]
+blend_shape_mode = 0
+shadow_mesh = SubResource("ArrayMesh_5tahl")
 
 [sub_resource type="Animation" id="Animation_gh776"]
 resource_name = "RESET"
@@ -419,7 +447,7 @@ top_radius = 0.02
 bottom_radius = 0.02
 height = 1.0
 
-[node name="Character" type="CharacterBody3D" unique_id=1664366571 node_paths=PackedStringArray("HEAD", "CAMERA", "HEADBOB_ANIMATION", "JUMP_ANIMATION", "CROUCH_ANIMATION", "COLLISION_MESH")]
+[node name="Character" type="CharacterBody3D" unique_id=1664366571 node_paths=PackedStringArray("HEAD", "CAMERA", "HEADBOB_ANIMATION", "JUMP_ANIMATION", "CROUCH_ANIMATION", "COLLISION_MESH", "GRAPPLE_HOOK_TIP")]
 transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, 0, 0, 0)
 script = ExtResource("1_0t4e8")
 default_reticle = "res://addons/fpc/reticles/reticle_1.tscn"
@@ -429,6 +457,7 @@ HEADBOB_ANIMATION = NodePath("Head/HeadbobAnimation")
 JUMP_ANIMATION = NodePath("Head/JumpAnimation")
 CROUCH_ANIMATION = NodePath("CrouchAnimation")
 COLLISION_MESH = NodePath("Collision")
+GRAPPLE_HOOK_TIP = NodePath("Head/Camera/hands/Cube2/Cube_001")
 
 [node name="Mesh" type="MeshInstance3D" parent="." unique_id=537830521]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
@@ -467,15 +496,10 @@ blend_shapes/Hold = 0.0
 blend_shapes/fist = 0.0
 "blend_shapes/no hook" = 0.0
 
-[node name="GrappleHookTip" parent="Head/Camera/hands/Cube2" unique_id=888150164 instance=ExtResource("2_qaoyu")]
-transform = Transform3D(-6.3694267, 0, 1.7053026e-13, 0, 6.3694267, 0, 9.094947e-13, 0, 35.71429, -6.0909114, 0.9355774, 4.700266)
-
-[node name="Cube" parent="Head/Camera/hands/Cube2/GrappleHookTip" index="0" unique_id=900505018]
-visible = false
-material_override = SubResource("StandardMaterial3D_rwtcd")
-
-[node name="Cube_001" parent="Head/Camera/hands/Cube2/GrappleHookTip" index="1" unique_id=1141970613]
+[node name="Cube_001" type="MeshInstance3D" parent="Head/Camera/hands/Cube2" unique_id=1141970613]
+transform = Transform3D(-6.3694267, 0, 2.2737368e-13, 0, 6.3694267, 0, 1.0231815e-12, 0, 35.71429, -6.0909123, 0.9355774, 4.700266)
 material_override = SubResource("StandardMaterial3D_uv0ir")
+mesh = SubResource("ArrayMesh_3pp2g")
 
 [node name="GrappleMuzzle" type="Node3D" parent="Head/Camera/hands/Cube2" unique_id=1738207473]
 transform = Transform3D(-6.3694305, 0, 4.2632564e-13, 0, 6.3694267, 0, 5.684342e-13, 0, 35.71429, -6.062485, 0.9084463, 4.75811)
@@ -540,4 +564,3 @@ script = ExtResource("3_v3ckk")
 mesh = SubResource("CylinderMesh_bhunq")
 
 [editable path="Head/Camera/hands"]
-[editable path="Head/Camera/hands/Cube2/GrappleHookTip"]
