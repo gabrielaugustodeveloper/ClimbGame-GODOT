@@ -164,4 +164,3 @@ texture = ExtResource("4_ppyta")
 [editable path="test map"]
 [editable path="Character"]
 [editable path="Character/Head/Camera/hands"]
-[editable path="Character/Head/Camera/hands/Cube2/GrappleHookTip"]

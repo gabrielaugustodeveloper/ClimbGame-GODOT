@@ -294,72 +294,98 @@ func _physics_process(delta : float) -> void:
 
 #region Full Procedural 3D Hands Animations, Shape Keys & Grapple Rope
 func _update_hands_and_rope_animations(delta : float) -> void:
-	# 1. Global Hand Bobbing, Mouse Sway, Air Inertia & Wall Pullback (prevents clipping into walls!)
+	# 1. Global Hand Bobbing, Mouse Sway, Air Inertia & Wall Orientation during Climbing
 	hand_land_dip = lerpf(hand_land_dip, 0.0, 10.0 * delta)
 	hand_sway_offset = hand_sway_offset.lerp(Vector2.ZERO, 10.0 * delta)
 	
 	if HANDS_ROOT:
-		var root_target_pos : Vector3 = hands_base_pos
-		var root_target_rot : Vector3 = hands_base_rot
-		
-		# Check how close a wall is in front of the camera and pull hands back toward chest so fingers don't clip
-		var wall_pullback : float = 0.0
-		if WALL_CHECK and WALL_CHECK.is_colliding():
-			var wall_dist : float = WALL_CHECK.global_position.distance_to(WALL_CHECK.get_collision_point())
-			if wall_dist < 1.15:
-				wall_pullback = clamp((1.15 - wall_dist) * 0.45, 0.0, 0.38)
-		root_target_pos.z += wall_pullback
-		
-		# Walk & Sprint Bobbing
-		if is_on_floor() and moving and state != "climbing" and state != "grappling":
-			var bob_freq : float = 14.0 if state == "sprinting" else 9.0
-			var bob_amp : float = 0.045 if state == "sprinting" else 0.022
-			walk_bob_cycle += delta * bob_freq
-			root_target_pos.x += cos(walk_bob_cycle * 0.5) * bob_amp
-			root_target_pos.y += abs(sin(walk_bob_cycle)) * bob_amp
-			root_target_rot.z += cos(walk_bob_cycle * 0.5) * (4.0 if state == "sprinting" else 2.0)
-			if state == "sprinting":
-				root_target_rot.x -= 12.0
+		if state == "climbing":
+			# Keep hands parallel to the wall surface regardless of where the camera looks up/down!
+			var wall_into_dir : Vector3 = -last_wall_normal
+			wall_into_dir.y = 0.0
+			if wall_into_dir.length_squared() < 0.001:
+				wall_into_dir = -HEAD.global_transform.basis.z
+				wall_into_dir.y = 0.0
+			wall_into_dir = wall_into_dir.normalized()
+			
+			# Position hands right in front of the player's chest facing the wall
+			var target_world_pos : Vector3 = HEAD.global_position + Vector3(0.0, -0.22, 0.0) + (wall_into_dir * 0.42)
+			var target_yaw : float = atan2(-wall_into_dir.x, -wall_into_dir.z)
+			var target_world_rot : Vector3 = Vector3(0.0, rad_to_deg(target_yaw), 0.0)
+			
+			HANDS_ROOT.global_position = HANDS_ROOT.global_position.lerp(target_world_pos, 16.0 * delta)
+			HANDS_ROOT.global_rotation_degrees = HANDS_ROOT.global_rotation_degrees.lerp(target_world_rot, 16.0 * delta)
 		else:
-			walk_bob_cycle = 0.0
+			# Normal FPS mode: return smoothly to local camera-following transform
+			var root_target_pos : Vector3 = hands_base_pos
+			var root_target_rot : Vector3 = hands_base_rot
 			
-		# In-air falling/jumping lift
-		if not is_on_floor() and state != "climbing" and state != "grappling":
-			var air_offset_y : float = clamp(-velocity.y * 0.012, -0.08, 0.14)
-			root_target_pos.y += air_offset_y
-			root_target_rot.x += clamp(velocity.y * 1.8, -18.0, 18.0)
+			var wall_pullback : float = 0.0
+			if WALL_CHECK and WALL_CHECK.is_colliding():
+				var wall_dist : float = WALL_CHECK.global_position.distance_to(WALL_CHECK.get_collision_point())
+				if wall_dist < 1.15:
+					wall_pullback = clamp((1.15 - wall_dist) * 0.45, 0.0, 0.38)
+			root_target_pos.z += wall_pullback
 			
-		root_target_pos.y += hand_land_dip
-		root_target_pos.x += hand_sway_offset.x
-		root_target_pos.y += hand_sway_offset.y
-		root_target_rot.y += hand_sway_offset.x * 120.0
-		
-		HANDS_ROOT.position = HANDS_ROOT.position.lerp(root_target_pos, 16.0 * delta)
-		HANDS_ROOT.rotation_degrees = HANDS_ROOT.rotation_degrees.lerp(root_target_rot, 16.0 * delta)
+			if is_on_floor() and moving and state != "grappling":
+				var bob_freq : float = 14.0 if state == "sprinting" else 9.0
+				var bob_amp : float = 0.045 if state == "sprinting" else 0.022
+				walk_bob_cycle += delta * bob_freq
+				root_target_pos.x += cos(walk_bob_cycle * 0.5) * bob_amp
+				root_target_pos.y += abs(sin(walk_bob_cycle)) * bob_amp
+				root_target_rot.z += cos(walk_bob_cycle * 0.5) * (4.0 if state == "sprinting" else 2.0)
+				if state == "sprinting":
+					root_target_rot.x -= 12.0
+			else:
+				walk_bob_cycle = 0.0
+				
+			if not is_on_floor() and state != "grappling":
+				var air_offset_y : float = clamp(-velocity.y * 0.012, -0.08, 0.14)
+				root_target_pos.y += air_offset_y
+				root_target_rot.x += clamp(velocity.y * 1.8, -18.0, 18.0)
+				
+			root_target_pos.y += hand_land_dip
+			root_target_pos.x += hand_sway_offset.x
+			root_target_pos.y += hand_sway_offset.y
+			root_target_rot.y += hand_sway_offset.x * 120.0
+			
+			HANDS_ROOT.position = HANDS_ROOT.position.lerp(root_target_pos, 16.0 * delta)
+			HANDS_ROOT.rotation_degrees = HANDS_ROOT.rotation_degrees.lerp(root_target_rot, 16.0 * delta)
 
-	# 2. Shape Keys ("Normal", "Hold", and "fist")
-	var target_normal : float = 0.0
-	var target_hold : float = 0.0
-	var target_fist : float = 0.0
+	# 2. Separate Shape Keys per Hand ("Normal", "Hold", and "fist")
+	var left_target_hold : float = 0.0
+	var left_target_fist : float = 0.0
+	var right_target_hold : float = 0.0
+	var right_target_fist : float = 0.0
 	
 	if is_grapple_attached or is_being_pulled:
-		target_fist = 1.0
+		# Right hand in "fist" firing grapple; Left hand in "Hold" bracing on top of right arm!
+		right_target_fist = 1.0
+		left_target_hold = 1.0
 	elif is_stomping:
-		target_fist = 1.0
+		left_target_fist = 1.0
+		right_target_fist = 1.0
 	elif state == "climbing":
-		target_hold = 1.0
+		left_target_hold = 1.0
+		right_target_hold = 1.0
 	elif carried_item != null:
-		target_hold = 0.75
-	elif hand_action_timer > 0.0:
-		target_hold = 0.9 if hand_action_type == "pickup" else 0.0
+		left_target_hold = 0.75
+		right_target_hold = 0.75
+	elif hand_action_timer > 0.0 and hand_action_type == "pickup":
+		left_target_hold = 0.9
+		right_target_hold = 0.9
 	elif state == "sprinting":
-		target_fist = 0.65
+		left_target_fist = 0.65
+		right_target_fist = 0.65
 		
-	current_fold_weight = lerpf(current_fold_weight, target_hold, 14.0 * delta)
-	current_fist_weight = lerpf(current_fist_weight, target_fist, 14.0 * delta)
+	current_fold_weight = lerpf(current_fold_weight, left_target_hold, 14.0 * delta)
+	current_fist_weight = lerpf(current_fist_weight, right_target_fist, 14.0 * delta)
 	
-	_apply_shape_keys_to_mesh(LEFT_HAND_MESH, target_normal, current_fold_weight, current_fist_weight)
-	_apply_shape_keys_to_mesh(RIGHT_HAND_MESH, target_normal, current_fold_weight, current_fist_weight)
+	var right_hold_smooth : float = lerpf(0.0, right_target_hold, 1.0) if (is_grapple_attached or is_being_pulled) else current_fold_weight
+	var left_fist_smooth : float = 0.0 if (is_grapple_attached or is_being_pulled) else current_fist_weight
+	
+	_apply_shape_keys_to_mesh(LEFT_HAND_MESH, 0.0, current_fold_weight, left_fist_smooth)
+	_apply_shape_keys_to_mesh(RIGHT_HAND_MESH, 0.0, right_hold_smooth, current_fist_weight)
 	
 	# 3. Individual Left & Right Hand Action Animations
 	var left_target_pos : Vector3 = left_hand_base_pos
@@ -367,26 +393,32 @@ func _update_hands_and_rope_animations(delta : float) -> void:
 	var right_target_pos : Vector3 = right_hand_base_pos
 	var right_target_rot : Vector3 = right_hand_base_rot
 
+	# A) CLIMBING: Hands flat/parallel to the wall, alternating vertical pulls as you climb
 	if state == "climbing":
 		var climb_move_factor : float = 1.0 if current_speed > 0.1 else 0.0
-		climb_anim_cycle += delta * (current_speed * 3.8 + 1.5) * climb_move_factor
+		climb_anim_cycle += delta * (current_speed * 4.2 + 1.5) * climb_move_factor
 		
-		left_target_pos += Vector3(0.0, sin(climb_anim_cycle) * 0.14, -0.05 + cos(climb_anim_cycle) * 0.05)
-		left_target_rot += Vector3(25.0 + sin(climb_anim_cycle) * 15.0, 0.0, 0.0)
+		# Tilt palms forward so hands lie flat parallel to the vertical wall
+		left_target_pos += Vector3(0.0, sin(climb_anim_cycle) * 0.16, -0.05 + cos(climb_anim_cycle) * 0.03)
+		left_target_rot += Vector3(65.0 + sin(climb_anim_cycle) * 10.0, 0.0, 0.0)
 		
-		right_target_pos += Vector3(0.0, -sin(climb_anim_cycle) * 0.14, -0.05 - cos(climb_anim_cycle) * 0.05)
-		right_target_rot += Vector3(25.0 - sin(climb_anim_cycle) * 15.0, 0.0, 0.0)
+		right_target_pos += Vector3(0.0, -sin(climb_anim_cycle) * 0.16, -0.05 - cos(climb_anim_cycle) * 0.03)
+		right_target_rot += Vector3(65.0 - sin(climb_anim_cycle) * 10.0, 0.0, 0.0)
 
+	# B) GRAPPLE AIM & BRACE: Right arm aims wrist launcher; Left hand (Hold) braces right on top of right forearm
 	elif is_grapple_attached or is_being_pulled:
 		var recoil_kick : float = (hand_action_timer / 0.25) if (hand_action_type == "grapple_fire" and hand_action_timer > 0.0) else 0.0
 		var pull_shake : float = sin(Time.get_ticks_msec() * 0.04) * 0.015 if is_being_pulled else 0.0
 		
-		right_target_pos += Vector3(-0.04, 0.06 + pull_shake, -0.14 + (recoil_kick * 0.12))
+		# Right hand points forward/downward with fist closed
+		right_target_pos += Vector3(-0.06, 0.05 + pull_shake, -0.15 + (recoil_kick * 0.12))
 		right_target_rot += Vector3(-55.0 + (recoil_kick * 25.0), 0.0, 0.0)
 		
-		left_target_pos += Vector3(0.0, -0.08, 0.05)
-		left_target_rot += Vector3(-15.0, 0.0, 0.0)
+		# Left hand resting right on top of the right wrist/brace
+		left_target_pos += Vector3(1.02, -0.02 + pull_shake, 0.74 + (recoil_kick * 0.10))
+		left_target_rot += Vector3(-52.0 + (recoil_kick * 20.0), -48.0, -35.0)
 
+	# C) PICKUP / THROW / CARRYING ITEM
 	elif hand_action_timer > 0.0 and (hand_action_type == "pickup" or hand_action_type == "throw"):
 		var reach_amt : float = sin((hand_action_timer / 0.25) * PI)
 		var forward_push : float = -0.20 if hand_action_type == "throw" else -0.14
@@ -424,7 +456,6 @@ func _update_hands_and_rope_animations(delta : float) -> void:
 		if GRAPPLE_HOOK_TIP:
 			GRAPPLE_HOOK_TIP.top_level = true
 			GRAPPLE_HOOK_TIP.visible = true
-			# Disable No Depth Test while flying so the hook embeds naturally into walls
 			if GRAPPLE_HOOK_TIP is MeshInstance3D and GRAPPLE_HOOK_TIP.material_override is BaseMaterial3D:
 				GRAPPLE_HOOK_TIP.material_override.no_depth_test = false
 			
@@ -449,7 +480,6 @@ func _update_hands_and_rope_animations(delta : float) -> void:
 			GRAPPLE_HOOK_TIP.top_level = false
 			GRAPPLE_HOOK_TIP.transform = hook_holstered_transform
 			GRAPPLE_HOOK_TIP.visible = true
-			# Re-enable No Depth Test when holstered on the wrist so it doesn't clip into walls
 			if GRAPPLE_HOOK_TIP is MeshInstance3D and GRAPPLE_HOOK_TIP.material_override is BaseMaterial3D:
 				GRAPPLE_HOOK_TIP.material_override.no_depth_test = true
 
