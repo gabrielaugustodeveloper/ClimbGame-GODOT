@@ -43,16 +43,22 @@ shadow_enabled = true
 [node name="Cube" parent="test map" index="1" unique_id=1599587978]
 process_mode = 4
 
-[node name="Character" parent="." unique_id=1664366571 node_paths=PackedStringArray("WALL_CHECK", "GRAPPLE_CHECK", "INTERACT_CHECK", "INVENTORY_LABEL") instance=ExtResource("2_6uqi0")]
+[node name="Character" parent="." unique_id=1664366571 node_paths=PackedStringArray("WALL_CHECK", "GRAPPLE_CHECK", "INTERACT_CHECK", "INVENTORY_LABEL", "HANDS_ROOT", "LEFT_HAND_MESH", "RIGHT_HAND_MESH", "GRAPPLE_MUZZLE", "GRAPPLE_ROPE_MESH") instance=ExtResource("2_6uqi0")]
 transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, -62.793427, 14.629257, -2.5687733)
 base_speed = 5.0
 sprint_speed = 10.0
 acceleration = 7.0
 jump_velocity = 12.0
+default_reticle = "uid://3mij3cjhkwsm"
 WALL_CHECK = NodePath("Head/Camera/WallCheck")
 GRAPPLE_CHECK = NodePath("Head/Camera/GrappleCheck")
 INTERACT_CHECK = NodePath("Head/Camera/InteractCheck")
 INVENTORY_LABEL = NodePath("UserInterface/InventoryLabel")
+HANDS_ROOT = NodePath("Head/Camera/hands")
+LEFT_HAND_MESH = NodePath("Head/Camera/hands/Cube")
+RIGHT_HAND_MESH = NodePath("Head/Camera/hands/Cube2")
+GRAPPLE_MUZZLE = NodePath("Head/Camera/hands/Cube2/GrappleMuzzle")
+GRAPPLE_ROPE_MESH = NodePath("GrappleRope")
 view_tilting = true
 
 [node name="Camera" parent="Character/Head" parent_id_path=PackedInt32Array(1664366571, 1736064418) index="0" unique_id=428476260]
@@ -157,3 +163,5 @@ texture = ExtResource("4_ppyta")
 
 [editable path="test map"]
 [editable path="Character"]
+[editable path="Character/Head/Camera/hands"]
+[editable path="Character/Head/Camera/hands/Cube2/GrappleHookTip"]

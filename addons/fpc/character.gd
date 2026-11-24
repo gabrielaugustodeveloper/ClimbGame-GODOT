@@ -1,6 +1,6 @@
 # COPYRIGHT Colormatic Studios
 # MIT license
-# Updated with Smooth Ledge Mantling, Glitch-Free Wall Jump, Sonic Air Stomp (Ctrl), and 1-Slot Weight Inventory
+# Updated with Full Procedural FPS Hand Animations (Sway, Fall/Land, Wrist Grapple Aim & Recoil, Climb, Pickup/Throw)
 
 extends CharacterBody3D
 
@@ -48,6 +48,20 @@ extends CharacterBody3D
 @export var GRAPPLE_CHECK : RayCast3D
 @export var INTERACT_CHECK : RayCast3D
 @export var INVENTORY_LABEL : Label
+
+@export_subgroup("Hands & Grapple Visuals")
+## Root Node3D of the imported hands.glb inside CAMERA
+@export var HANDS_ROOT : Node3D
+## Left hand MeshInstance3D
+@export var LEFT_HAND_MESH : MeshInstance3D
+## Right hand MeshInstance3D (with the wrist grapple launcher)
+@export var RIGHT_HAND_MESH : MeshInstance3D
+## Node3D placed at the tip of the wrist launcher where the rope starts
+@export var GRAPPLE_MUZZLE : Node3D
+## MeshInstance3D with a CylinderMesh (height 1.0) to render the grapple cable
+@export var GRAPPLE_ROPE_MESH : MeshInstance3D
+## The separated 3D hook model that sits on the wrist and flies to the wall when fired
+@export var GRAPPLE_HOOK_TIP : Node3D
 #endregion
 
 #region Controls Export Group
@@ -98,6 +112,7 @@ var is_grapple_attached : bool = false
 var is_being_pulled : bool = false
 var grapple_timer : float = 0.0
 const GRAPPLE_COOLDOWN : float = 5.0
+var hook_flight_progress : float = 0.0 # Animates the hook flying from wrist to wall
 
 # Climbing, Wall-Jump & Mantling Variables
 var climb_timer : float = 0.0
@@ -108,6 +123,22 @@ var last_wall_normal : Vector3 = Vector3.ZERO
 var wall_jump_lock_timer : float = 0.0
 var mantle_boost_timer : float = 0.0
 var mantle_direction : Vector3 = Vector3.ZERO
+
+# Procedural Hand Animation Variables
+var climb_anim_cycle : float = 0.0
+var walk_bob_cycle : float = 0.0
+var hands_base_pos : Vector3 = Vector3.ZERO
+var hands_base_rot : Vector3 = Vector3.ZERO
+var left_hand_base_pos : Vector3 = Vector3.ZERO
+var left_hand_base_rot : Vector3 = Vector3.ZERO
+var right_hand_base_pos : Vector3 = Vector3.ZERO
+var right_hand_base_rot : Vector3 = Vector3.ZERO
+var current_fold_weight : float = 0.0
+var current_fist_weight : float = 0.0
+var hand_sway_offset : Vector2 = Vector2.ZERO
+var hand_land_dip : float = 0.0
+var hand_action_timer : float = 0.0
+var hand_action_type : String = "" # "pickup", "throw", "grapple_fire"
 
 # Sonic Stomp Variables
 var is_stomping : bool = false
@@ -135,6 +166,38 @@ func _ready() -> void:
 	if default_reticle:
 		change_reticle(default_reticle)
 
+	# Auto-detect HANDS_ROOT if not assigned
+	if not HANDS_ROOT and CAMERA and CAMERA.has_node("hands"):
+		HANDS_ROOT = CAMERA.get_node("hands")
+	if HANDS_ROOT:
+		if not LEFT_HAND_MESH and HANDS_ROOT.has_node("Cube"):
+			LEFT_HAND_MESH = HANDS_ROOT.get_node("Cube")
+		if not RIGHT_HAND_MESH and HANDS_ROOT.has_node("Cube2"):
+			RIGHT_HAND_MESH = HANDS_ROOT.get_node("Cube2")
+		# Automatically hide the red placeholder block (Cube_002) if it exists in hands.glb
+		if HANDS_ROOT.has_node("Cube_002"):
+			HANDS_ROOT.get_node("Cube_002").visible = false
+
+	# Also hide any leftover red Cube_002 inside the separated hook model
+	if GRAPPLE_HOOK_TIP:
+		for child in GRAPPLE_HOOK_TIP.find_children("*", "MeshInstance3D", true, false):
+			if "Cube_002" in child.name:
+				child.visible = false
+
+	# Store initial transforms for procedural hand animations
+	if HANDS_ROOT:
+		hands_base_pos = HANDS_ROOT.position
+		hands_base_rot = HANDS_ROOT.rotation_degrees
+	if LEFT_HAND_MESH:
+		left_hand_base_pos = LEFT_HAND_MESH.position
+		left_hand_base_rot = LEFT_HAND_MESH.rotation_degrees
+	if RIGHT_HAND_MESH:
+		right_hand_base_pos = RIGHT_HAND_MESH.position
+		right_hand_base_rot = RIGHT_HAND_MESH.rotation_degrees
+	if GRAPPLE_ROPE_MESH:
+		GRAPPLE_ROPE_MESH.visible = false
+		GRAPPLE_ROPE_MESH.top_level = true
+
 	_initialize_animations()
 	_check_controls()
 	_enter_normal_state()
@@ -149,6 +212,10 @@ func _process(delta : float) -> void:
 	if climb_cooldown_timer > 0.0: climb_cooldown_timer -= delta
 	if wall_jump_lock_timer > 0.0: wall_jump_lock_timer -= delta
 	if mantle_boost_timer > 0.0: mantle_boost_timer -= delta
+	if hand_action_timer > 0.0: hand_action_timer -= delta
+	
+	# Update all procedural 3D hand animations, shape keys, and grapple visuals
+	_update_hands_and_rope_animations(delta)
 
 func _physics_process(delta : float) -> void:
 	_handle_inventory_logic()
@@ -162,13 +229,14 @@ func _physics_process(delta : float) -> void:
 		is_stomping = false
 		_handle_grappling_movement(delta)
 	else:
-		# Reset stomp when landing on the floor
 		if is_on_floor():
+			if not was_on_floor:
+				# Trigger downward hand impact when landing on the ground
+				hand_land_dip = -0.18 if is_stomping else -0.09
 			is_stomping = false
 		else:
 			_handle_air_stomp()
 
-		# Apply gravity or Stomp velocity
 		if not is_on_floor() and gravity_enabled:
 			if is_stomping:
 				velocity.x = 0.0
@@ -204,6 +272,191 @@ func _physics_process(delta : float) -> void:
 	_update_debug_menu_per_tick()
 	was_on_floor = is_on_floor()
 
+#region Full Procedural 3D Hands Animations, Shape Keys & Grapple Rope
+func _update_hands_and_rope_animations(delta : float) -> void:
+	# 1. Global Hand Bobbing (Walking/Sprinting), Mouse Sway & Air/Fall Inertia on HANDS_ROOT
+	hand_land_dip = lerpf(hand_land_dip, 0.0, 10.0 * delta)
+	hand_sway_offset = hand_sway_offset.lerp(Vector2.ZERO, 10.0 * delta)
+	
+	if HANDS_ROOT:
+		var root_target_pos : Vector3 = hands_base_pos
+		var root_target_rot : Vector3 = hands_base_rot
+		
+		# Walk & Sprint Bobbing directly on the hands
+		if is_on_floor() and moving and state != "climbing" and state != "grappling":
+			var bob_freq : float = 14.0 if state == "sprinting" else 9.0
+			var bob_amp : float = 0.045 if state == "sprinting" else 0.022
+			walk_bob_cycle += delta * bob_freq
+			root_target_pos.x += cos(walk_bob_cycle * 0.5) * bob_amp
+			root_target_pos.y += abs(sin(walk_bob_cycle)) * bob_amp
+			root_target_rot.z += cos(walk_bob_cycle * 0.5) * (4.0 if state == "sprinting" else 2.0)
+			if state == "sprinting":
+				root_target_rot.x -= 12.0 # Tilt hands slightly down while sprinting
+		else:
+			walk_bob_cycle = 0.0
+			
+		# In-air falling/jumping lift (hands float up when falling, dip on jump/land)
+		if not is_on_floor() and state != "climbing" and state != "grappling":
+			var air_offset_y : float = clamp(-velocity.y * 0.012, -0.08, 0.14)
+			root_target_pos.y += air_offset_y
+			root_target_rot.x += clamp(velocity.y * 1.8, -18.0, 18.0)
+			
+		# Apply landing impact dip and mouse rotation sway
+		root_target_pos.y += hand_land_dip
+		root_target_pos.x += hand_sway_offset.x
+		root_target_pos.y += hand_sway_offset.y
+		root_target_rot.y += hand_sway_offset.x * 120.0
+		
+		HANDS_ROOT.position = HANDS_ROOT.position.lerp(root_target_pos, 14.0 * delta)
+		HANDS_ROOT.rotation_degrees = HANDS_ROOT.rotation_degrees.lerp(root_target_rot, 14.0 * delta)
+
+	# 2. Shape Keys ("Normal", "Hold", and "fist") based on current player action
+	var target_normal : float = 0.0
+	var target_hold : float = 0.0
+	var target_fist : float = 0.0
+	
+	if is_grapple_attached or is_being_pulled:
+		target_fist = 1.0 # Full closed fist when firing/pulling wrist grapple
+	elif is_stomping:
+		target_fist = 1.0 # Closed fist during Sonic Air Stomp
+	elif state == "climbing":
+		target_hold = 1.0 # Claw/grip pose while climbing walls
+	elif carried_item != null:
+		target_hold = 0.75 # Holding package pose
+	elif hand_action_timer > 0.0:
+		target_hold = 0.9 if hand_action_type == "pickup" else 0.0 # Grab on pickup, open hand on throw
+	elif state == "sprinting":
+		target_fist = 0.65 # Half-closed fist while sprinting
+	else:
+		# Idle / Walking: relaxed open hand (Basis / Normal)
+		target_normal = 0.0
+		target_hold = 0.0
+		target_fist = 0.0
+		
+	current_fold_weight = lerpf(current_fold_weight, target_hold, 14.0 * delta)
+	current_fist_weight = lerpf(current_fist_weight, target_fist, 14.0 * delta)
+	
+	_apply_shape_keys_to_mesh(LEFT_HAND_MESH, target_normal, current_fold_weight, current_fist_weight)
+	_apply_shape_keys_to_mesh(RIGHT_HAND_MESH, target_normal, current_fold_weight, current_fist_weight)
+	
+	# 3. Individual Left & Right Hand Action Animations (Climbing, Grapple Aim, Pickup/Throw, Carrying)
+	var left_target_pos : Vector3 = left_hand_base_pos
+	var left_target_rot : Vector3 = left_hand_base_rot
+	var right_target_pos : Vector3 = right_hand_base_pos
+	var right_target_rot : Vector3 = right_hand_base_rot
+
+	# A) CLIMBING ANIMATION: Alternating vertical hand-over-hand pulls
+	if state == "climbing":
+		var climb_move_factor : float = 1.0 if current_speed > 0.1 else 0.0
+		climb_anim_cycle += delta * (current_speed * 3.8 + 1.5) * climb_move_factor
+		
+		left_target_pos += Vector3(0.0, sin(climb_anim_cycle) * 0.14, -0.08 + cos(climb_anim_cycle) * 0.06)
+		left_target_rot += Vector3(25.0 + sin(climb_anim_cycle) * 15.0, 0.0, 0.0)
+		
+		right_target_pos += Vector3(0.0, -sin(climb_anim_cycle) * 0.14, -0.08 - cos(climb_anim_cycle) * 0.06)
+		right_target_rot += Vector3(25.0 - sin(climb_anim_cycle) * 15.0, 0.0, 0.0)
+
+	# B) GRAPPLE AIM & SHOOT ANIMATION: Tilt wrist downward to point launcher at the wall + recoil kick
+	elif is_grapple_attached or is_being_pulled:
+		var recoil_kick : float = (hand_action_timer / 0.25) if (hand_action_type == "grapple_fire" and hand_action_timer > 0.0) else 0.0
+		var pull_shake : float = sin(Time.get_ticks_msec() * 0.04) * 0.015 if is_being_pulled else 0.0
+		
+		# Right hand tilts downward (-55 deg X) so the wrist accessory points straight toward the target
+		right_target_pos += Vector3(-0.04, 0.06 + pull_shake, -0.16 + (recoil_kick * 0.12))
+		right_target_rot += Vector3(-55.0 + (recoil_kick * 25.0), 0.0, 0.0)
+		
+		# Left hand braces slightly lower
+		left_target_pos += Vector3(0.0, -0.08, 0.05)
+		left_target_rot += Vector3(-15.0, 0.0, 0.0)
+
+	# C) PICKUP / THROW / CARRYING ITEM ANIMATION
+	elif hand_action_timer > 0.0 and (hand_action_type == "pickup" or hand_action_type == "throw"):
+		var reach_amt : float = sin((hand_action_timer / 0.25) * PI)
+		var forward_push : float = -0.22 if hand_action_type == "throw" else -0.16
+		var pitch_angle : float = -35.0 if hand_action_type == "throw" else 25.0
+		
+		left_target_pos += Vector3(0.05 * reach_amt, -0.04 * reach_amt, forward_push * reach_amt)
+		right_target_pos += Vector3(-0.05 * reach_amt, -0.04 * reach_amt, forward_push * reach_amt)
+		left_target_rot += Vector3(pitch_angle * reach_amt, 0.0, 0.0)
+		right_target_rot += Vector3(pitch_angle * reach_amt, 0.0, 0.0)
+	elif carried_item != null:
+		# Hands positioned together in front as if holding the heavy box
+		left_target_pos += Vector3(0.06, -0.07, -0.10)
+		right_target_pos += Vector3(-0.06, -0.07, -0.10)
+		left_target_rot += Vector3(20.0, -15.0, 0.0)
+		right_target_rot += Vector3(20.0, 15.0, 0.0)
+
+	if LEFT_HAND_MESH:
+		LEFT_HAND_MESH.position = LEFT_HAND_MESH.position.lerp(left_target_pos, 15.0 * delta)
+		LEFT_HAND_MESH.rotation_degrees = LEFT_HAND_MESH.rotation_degrees.lerp(left_target_rot, 15.0 * delta)
+	if RIGHT_HAND_MESH:
+		RIGHT_HAND_MESH.position = RIGHT_HAND_MESH.position.lerp(right_target_pos, 15.0 * delta)
+		RIGHT_HAND_MESH.rotation_degrees = RIGHT_HAND_MESH.rotation_degrees.lerp(right_target_rot, 15.0 * delta)
+
+	# 4. Update 3D Grapple Rope and Flying/Retracting Separated Hook Tip
+	var muzzle_pos : Vector3 = GRAPPLE_MUZZLE.global_position if GRAPPLE_MUZZLE else (RIGHT_HAND_MESH.global_position if RIGHT_HAND_MESH else (CAMERA.global_position + Vector3(0.25, -0.25, -0.4)))
+	
+	if is_grapple_attached:
+		# Shoot outward: progress goes from 0.0 (wrist) to 1.0 (wall)
+		hook_flight_progress = move_toward(hook_flight_progress, 1.0, delta * 9.0)
+	else:
+		# Retract back to wrist: progress goes from current value back to 0.0!
+		hook_flight_progress = move_toward(hook_flight_progress, 0.0, delta * 11.0)
+		
+	if hook_flight_progress > 0.001:
+		var current_hook_pos : Vector3 = muzzle_pos.lerp(grapple_point, hook_flight_progress)
+		var dist : float = muzzle_pos.distance_to(current_hook_pos)
+		
+		# Position the flying hook at the tip of the extending/retracting rope
+		if GRAPPLE_HOOK_TIP:
+			GRAPPLE_HOOK_TIP.top_level = true
+			GRAPPLE_HOOK_TIP.visible = true
+			GRAPPLE_HOOK_TIP.global_position = current_hook_pos
+			if muzzle_pos.distance_to(grapple_point) > 0.05:
+				GRAPPLE_HOOK_TIP.look_at(grapple_point, Vector3.UP)
+		
+		# Stretch the rope between wrist muzzle and current flying hook position
+		if GRAPPLE_ROPE_MESH and dist > 0.05:
+			GRAPPLE_ROPE_MESH.visible = true
+			GRAPPLE_ROPE_MESH.global_position = (muzzle_pos + current_hook_pos) * 0.5
+			GRAPPLE_ROPE_MESH.look_at(current_hook_pos, Vector3.UP)
+			GRAPPLE_ROPE_MESH.rotate_object_local(Vector3.RIGHT, PI * 0.5)
+			GRAPPLE_ROPE_MESH.scale = Vector3(1.0, dist, 1.0)
+		elif GRAPPLE_ROPE_MESH:
+			GRAPPLE_ROPE_MESH.visible = false
+	else:
+		# Fully retracted: hide rope and snap the separated hook cleanly onto the wrist muzzle
+		if GRAPPLE_ROPE_MESH:
+			GRAPPLE_ROPE_MESH.visible = false
+		if GRAPPLE_HOOK_TIP:
+			if GRAPPLE_MUZZLE:
+				GRAPPLE_HOOK_TIP.top_level = false
+				GRAPPLE_HOOK_TIP.global_transform = GRAPPLE_MUZZLE.global_transform
+				GRAPPLE_HOOK_TIP.visible = true
+			else:
+				GRAPPLE_HOOK_TIP.visible = false
+
+func _apply_shape_keys_to_mesh(mesh_inst : Node3D, normal_val : float, hold_val : float, fist_val : float) -> void:
+	if not mesh_inst: return
+	
+	var meshes_to_update : Array[MeshInstance3D] = []
+	if mesh_inst is MeshInstance3D:
+		meshes_to_update.append(mesh_inst)
+	for child in mesh_inst.find_children("*", "MeshInstance3D", true, false):
+		meshes_to_update.append(child)
+		
+	for m in meshes_to_update:
+		if not m.mesh: continue
+		for i in range(m.get_blend_shape_count()):
+			var bs_name : String = m.mesh.get_blend_shape_name(i).to_lower()
+			if bs_name == "normal":
+				m.set_blend_shape_value(i, normal_val)
+			elif bs_name == "hold" or bs_name == "fold":
+				m.set_blend_shape_value(i, hold_val)
+			elif bs_name == "fist":
+				m.set_blend_shape_value(i, fist_val)
+#endregion
+
 #region Sonic Air Stomp Logic (Press Ctrl in mid-air)
 func _handle_air_stomp() -> void:
 	var ctrl_down : bool = Input.is_key_pressed(KEY_CTRL)
@@ -213,7 +466,6 @@ func _handle_air_stomp() -> void:
 	if InputMap.has_action(controls.STOMP) and Input.is_action_just_pressed(controls.STOMP):
 		stomp_just_pressed = true
 
-	# Trigger fast downward stomp if in mid-air and not already stomping
 	if stomp_just_pressed and not is_on_floor() and not is_stomping:
 		is_stomping = true
 		mantle_boost_timer = 0.0
@@ -222,37 +474,35 @@ func _handle_air_stomp() -> void:
 		velocity.y = -stomp_velocity
 #endregion
 
-#region Single-Slot Inventory & Weight System (Pickup, Drop, Throw, and Mass Calculation)
+#region Single-Slot Inventory & Weight System
 func _handle_inventory_logic() -> void:
-	# Interact key (E): Pickup item if hands are empty, or gently drop if carrying one
 	if InputMap.has_action(controls.INTERACT) and Input.is_action_just_pressed(controls.INTERACT):
 		if carried_item == null:
 			_try_pickup_item()
 		else:
-			_release_item(drop_force)
+			_release_item(drop_force, "pickup")
 
-	# Throw key (Q): Throw the carried item scaled by its weight
 	if InputMap.has_action(controls.THROW) and Input.is_action_just_pressed(controls.THROW):
 		if carried_item != null:
-			_release_item(throw_force * weight_throw_mult)
+			_release_item(throw_force * weight_throw_mult, "throw")
 
 func _try_pickup_item() -> void:
 	if INTERACT_CHECK and INTERACT_CHECK.is_colliding():
 		var collider = INTERACT_CHECK.get_collider()
 		if collider is RigidBody3D and collider.is_in_group("pickup"):
 			carried_item = collider
-			
-			# Disable physics and hide object while stored in inventory
 			carried_item.freeze = true
 			carried_item.visible = false
 			for child in carried_item.get_children():
 				if child is CollisionShape3D:
 					child.disabled = true
 			
+			hand_action_type = "pickup"
+			hand_action_timer = 0.25
 			_apply_item_weight(carried_item.mass)
 			_update_inventory_ui()
 
-func _release_item(impulse_strength : float) -> void:
+func _release_item(impulse_strength : float, anim_type : String = "throw") -> void:
 	if carried_item == null: return
 	
 	var forward_dir : Vector3 = -CAMERA.global_transform.basis.z.normalized()
@@ -275,30 +525,28 @@ func _release_item(impulse_strength : float) -> void:
 	carried_item.linear_velocity = Vector3.ZERO
 	carried_item.angular_velocity = Vector3.ZERO
 	
-	# Multiply impulse by item mass so RigidBody3D acceleration matches our desired throw distance
 	var throw_vector : Vector3 = (forward_dir + Vector3(0, 0.15, 0)).normalized() * (impulse_strength * carried_item.mass)
 	carried_item.apply_central_impulse(throw_vector + (velocity * 0.3 * carried_item.mass))
 	
+	hand_action_type = anim_type
+	hand_action_timer = 0.25
 	carried_item = null
 	_reset_weight_modifiers()
 	_update_inventory_ui()
 
 func _apply_item_weight(item_mass : float) -> void:
-	# Light Item: No penalty
 	if item_mass <= medium_mass_threshold:
 		weight_speed_mult = 1.0
 		weight_jump_mult = 1.0
 		weight_gravity_mult = 1.0
 		weight_throw_mult = 1.0
 		current_weight_label = "Leve"
-	# Medium Item: Slight penalty
 	elif item_mass <= heavy_mass_threshold:
 		weight_speed_mult = 0.85
 		weight_jump_mult = 0.90
 		weight_gravity_mult = 1.15
 		weight_throw_mult = 0.80
 		current_weight_label = "Médio"
-	# Heavy Item: Noticeable penalty, but still playable
 	else:
 		weight_speed_mult = 0.65
 		weight_jump_mult = 0.75
@@ -341,6 +589,9 @@ func _handle_grappling_logic(_delta : float) -> void:
 			if not grapple_blocked:
 				grapple_point = GRAPPLE_CHECK.get_collision_point()
 				is_grapple_attached = true
+				hook_flight_progress = 0.0
+				hand_action_type = "grapple_fire"
+				hand_action_timer = 0.25 # Triggers wrist aiming recoil kick
 		
 		if is_grapple_attached and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			is_being_pulled = true
@@ -360,7 +611,6 @@ func _handle_grappling_movement(delta : float) -> void:
 	var to_target = grapple_point - global_position
 	var distance = to_target.length()
 	
-	# Grapple pull speed is also slightly affected by heavy weight
 	var pull_direction = to_target.normalized()
 	var effective_pull_speed = 22.0 * lerpf(1.0, weight_speed_mult, 0.5)
 	velocity = velocity.lerp(pull_direction * effective_pull_speed, acceleration * delta)
@@ -382,7 +632,6 @@ func _handle_climbing_logic(delta : float) -> void:
 		if state == "climbing": _enter_normal_state()
 		return
 
-	# Prevent instant re-grab right after a wall jump or ledge mantle
 	if wall_jump_lock_timer > 0.0:
 		return
 
@@ -394,7 +643,6 @@ func _handle_climbing_logic(delta : float) -> void:
 			var material_name = collider.name if collider else ""
 			var hit_normal : Vector3 = WALL_CHECK.get_collision_normal()
 			
-			# If the RayCast hits a flat top surface (normal pointing up) while climbing, trigger Ledge Mantle!
 			if state == "climbing" and hit_normal.y > 0.65:
 				_trigger_ledge_mantle()
 				return
@@ -409,26 +657,24 @@ func _handle_climbing_logic(delta : float) -> void:
 					velocity = Vector3.ZERO
 					climb_timer = 0.0
 				else:
-					# Heavy items drain climbing stamina slightly faster
 					climb_timer += delta * weight_gravity_mult
 					if climb_timer >= MAX_CLIMB_TIME:
 						climb_cooldown_timer = CLIMB_COOLDOWN
 						_enter_normal_state()
 						return
 				
-				# Smooth Wall Jump without mid-air re-grab glitch
 				if Input.is_action_just_pressed(controls.JUMP):
-					wall_jump_lock_timer = 0.35 # Lock climbing for 0.35s so the jump arcs cleanly
+					wall_jump_lock_timer = 0.35
 					var jump_dir : Vector3 = (last_wall_normal * 1.15 + Vector3.UP * 1.35).normalized()
 					velocity = jump_dir * (jump_velocity * weight_jump_mult) * 1.65
+					hand_land_dip = -0.08
 					if jump_animation:
 						JUMP_ANIMATION.play("jump", 0.25)
 					_enter_normal_state()
 					return
 		elif state == "climbing":
-			# When the RayCast clears the top edge of the wall, automatically mantle onto the ledge!
 			var raw_input = Input.get_vector(controls.LEFT, controls.RIGHT, controls.FORWARD, controls.BACKWARD)
-			if raw_input.y <= 0.1: # Holding W or neutral at the top edge
+			if raw_input.y <= 0.1:
 				_trigger_ledge_mantle()
 			else:
 				_enter_normal_state()
@@ -437,7 +683,6 @@ func _handle_climbing_logic(delta : float) -> void:
 			_enter_normal_state()
 
 func _trigger_ledge_mantle() -> void:
-	# Push toward the wall surface (-last_wall_normal) so the player lands squarely on top of the platform
 	var into_ledge_dir : Vector3 = -last_wall_normal
 	into_ledge_dir.y = 0.0
 	if into_ledge_dir.length_squared() < 0.01:
@@ -446,8 +691,9 @@ func _trigger_ledge_mantle() -> void:
 	into_ledge_dir = into_ledge_dir.normalized()
 	
 	mantle_direction = into_ledge_dir
-	mantle_boost_timer = 0.28 # 0.28s of assisted upward+forward carry over the lip of the wall
+	mantle_boost_timer = 0.28
 	wall_jump_lock_timer = 0.35
+	hand_land_dip = -0.12
 	
 	velocity = (Vector3.UP * mantle_up_force * weight_jump_mult) + (into_ledge_dir * mantle_forward_force)
 	climb_timer = 0.0
@@ -464,13 +710,11 @@ func _handle_climbing_movement(_delta : float) -> void:
 	var vertical_dir = Vector3.UP * (-raw_input.y)
 	var lateral_dir = Vector3.UP.cross(normal).normalized() * raw_input.x
 	
-	# Slight suction toward the wall (-normal * 1.5) so the character doesn't lose contact on bumpy meshes
 	var wall_suction : Vector3 = -normal * 1.5
 	var climb_vel : Vector3 = (vertical_dir + lateral_dir).normalized() * (3.5 * weight_speed_mult)
 	velocity = climb_vel + wall_suction
 	move_and_slide()
 	
-	# If climbing straight into a step/ledge where the upper raycast still sees wall but top is clear, help step up
 	if raw_input.y < -0.1 and is_on_wall() and get_real_velocity().y < 0.3:
 		global_position.y += 0.06
 #endregion
@@ -482,10 +726,12 @@ func _handle_jumping() -> void:
 		if continuous_jumping:
 			if Input.is_action_pressed(controls.JUMP) and is_on_floor() and !low_ceiling:
 				if jump_animation: JUMP_ANIMATION.play("jump", 0.25)
+				hand_land_dip = -0.07
 				velocity.y += effective_jump
 		else:
 			if Input.is_action_just_pressed(controls.JUMP) and is_on_floor() and !low_ceiling:
 				if jump_animation: JUMP_ANIMATION.play("jump", 0.25)
+				hand_land_dip = -0.07
 				velocity.y += effective_jump
 
 func _handle_movement(delta : float, input_dir : Vector2) -> void:
@@ -493,7 +739,6 @@ func _handle_movement(delta : float, input_dir : Vector2) -> void:
 	var direction3D := Vector3(direction2D.x, 0, direction2D.y)
 	var effective_speed : float = speed * weight_speed_mult
 	
-	# During ledge mantling, carry the player smoothly forward over the top edge
 	if mantle_boost_timer > 0.0:
 		velocity.x = mantle_direction.x * mantle_forward_force
 		velocity.z = mantle_direction.z * mantle_forward_force
@@ -514,7 +759,6 @@ func _handle_movement(delta : float, input_dir : Vector2) -> void:
 				velocity.x = direction3D.x * effective_speed
 				velocity.z = direction3D.z * effective_speed
 		else:
-			# Only steer in mid-air if the player is actively pressing movement keys (preserves wall-jump momentum!)
 			if input_dir != Vector2.ZERO:
 				if motion_smoothing:
 					velocity.x = lerp(velocity.x, direction3D.x * effective_speed, (acceleration * 0.5) * delta)
@@ -534,6 +778,10 @@ func _handle_head_rotation(_delta : float) -> void:
 
 	if invert_camera_y_axis: HEAD.rotation_degrees.x -= mouse_input.y * mouse_sensitivity * -1
 	else: HEAD.rotation_degrees.x -= mouse_input.y * mouse_sensitivity
+
+	# Accumulate mouse sway for the 3D FPS hands
+	hand_sway_offset.x = clamp(hand_sway_offset.x - mouse_input.x * 0.0006, -0.05, 0.05)
+	hand_sway_offset.y = clamp(hand_sway_offset.y + mouse_input.y * 0.0006, -0.05, 0.05)
 
 	mouse_input = Vector2.ZERO
 	HEAD.rotation_degrees.x = clamp(HEAD.rotation_degrees.x, -90, 90)
