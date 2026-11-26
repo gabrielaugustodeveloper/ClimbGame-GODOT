@@ -111,7 +111,7 @@ var grapple_point : Vector3 = Vector3.ZERO
 var is_grapple_attached : bool = false
 var is_being_pulled : bool = false
 var grapple_timer : float = 0.0
-const GRAPPLE_COOLDOWN : float = 5.0
+const GRAPPLE_COOLDOWN : float = 2.0
 var hook_flight_progress : float = 0.0 # Animates the hook flying from wrist to wall
 var hook_holstered_parent : Node3D = null
 var hook_holstered_transform : Transform3D

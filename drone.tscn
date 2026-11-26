@@ -1,0 +1,25 @@
+[gd_scene format=3 uid="uid://cyr1eneb02tys"]
+
+[ext_resource type="Script" uid="uid://8rqbjhvx4fwk" path="res://boss_drone.gd" id="1_uvgqj"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_riqys"]
+albedo_color = Color(0.22009999, 1, 0.9615713, 1)
+emission_enabled = true
+emission = Color(0, 0, 0.4117647, 1)
+
+[sub_resource type="SphereMesh" id="SphereMesh_bhunq"]
+material = SubResource("StandardMaterial3D_riqys")
+radius = 1.2
+height = 2.0
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_bhunq"]
+radius = 1.2
+
+[node name="Drone" type="Area3D" unique_id=570717689]
+script = ExtResource("1_uvgqj")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=857262476]
+mesh = SubResource("SphereMesh_bhunq")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1383367169]
+shape = SubResource("SphereShape3D_bhunq")
